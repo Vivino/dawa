@@ -1,13 +1,14 @@
 package dawa
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/kpawlik/geojson"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
+
+	"github.com/kpawlik/geojson"
 )
 
 // DefaultHost is the default host used for queries.
@@ -23,6 +24,8 @@ type parameter interface {
 
 // A generic query structure
 type query struct {
+	httpClient *http.Client
+
 	host     string
 	path     string
 	params   map[string]parameter
@@ -70,6 +73,11 @@ func (q *query) add(p parameter) {
 	}
 	q.keys = append(q.keys, key)
 	q.params[key] = p
+}
+
+// WithHTTPClient allows overriding the HTTP Client for this query.
+func (q *query) WithHTTPClient(httpClient *http.Client) {
+	q.httpClient = httpClient
 }
 
 // WithHost allows overriding the host for this query.
@@ -171,21 +179,37 @@ func (r RequestError) Error() string {
 // In some cases the error will be a RequestError type.
 func (q query) Request() (io.ReadCloser, error) {
 	url := q.URL()
-	resp, err := http.Get(q.URL())
+	var (
+		resp *http.Response
+		err  error
+	)
+
+	if q.httpClient == nil {
+		resp, err = http.Get(q.URL())
+	} else {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err = q.httpClient.Do(req)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode < 400 {
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusBadRequest {
 		return resp.Body, nil
 	}
-	u, e2 := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
+	u, e2 := io.ReadAll(resp.Body)
 	if e2 != nil || len(u) == 0 {
 		return nil, fmt.Errorf("Error with request %s", url)
 	}
+
 	var rerr RequestError
 	_ = json.Unmarshal(u, &rerr)
 	rerr.URL = url
+
 	return nil, rerr
 }
 
@@ -196,26 +220,41 @@ func (q query) Request() (io.ReadCloser, error) {
 func (q queryGeoJSON) GeoJSON() (*geojson.FeatureCollection, error) {
 	q.Add("format", "geojson")
 	url := q.URL()
-	resp, err := http.Get(q.URL())
+	var (
+		resp *http.Response
+		err  error
+	)
+
+	if q.httpClient == nil {
+		resp, err = http.Get(q.URL())
+	} else {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err = q.httpClient.Do(req)
+	}
 	if err != nil {
 		return nil, err
 	}
-
-	u, err := ioutil.ReadAll(resp.Body)
 	defer resp.Body.Close()
+
+	u, err := io.ReadAll(resp.Body)
 	if err != nil || len(u) == 0 {
 		return nil, fmt.Errorf("Error with request %s", url)
 	}
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode >= http.StatusBadRequest {
 		rerr := RequestError{URL: url}
 		_ = json.Unmarshal(u, &rerr)
 		return nil, rerr
 	}
+
 	var fc geojson.FeatureCollection
 	err = json.Unmarshal(u, &fc)
 	if err != nil {
 		return nil, err
 	}
+
 	return &fc, nil
 }
