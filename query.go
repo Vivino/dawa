@@ -187,7 +187,7 @@ func (q query) Request() (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode < 400 {
+	if resp.StatusCode < http.StatusBadRequest {
 		return resp.Body, nil
 	}
 	u, e2 := io.ReadAll(resp.Body)
@@ -223,7 +223,7 @@ func (q queryGeoJSON) GeoJSON() (*geojson.FeatureCollection, error) {
 		return nil, fmt.Errorf("Error with request %s", url)
 	}
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode >= http.StatusBadRequest {
 		rerr := RequestError{URL: url}
 		_ = json.Unmarshal(u, &rerr)
 		return nil, rerr
