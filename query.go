@@ -179,37 +179,25 @@ func (r RequestError) Error() string {
 // In some cases the error will be a RequestError type.
 func (q query) Request() (io.ReadCloser, error) {
 	url := q.URL()
-	var (
-		resp *http.Response
-		err  error
-	)
-
-	if q.httpClient == nil {
-		resp, err = http.Get(q.URL())
-	} else {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
-		if err != nil {
-			return nil, err
-		}
-		resp, err = q.httpClient.Do(req)
-	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
+	resp, err := q.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode < http.StatusBadRequest {
 		return resp.Body, nil
 	}
 	u, e2 := io.ReadAll(resp.Body)
+	resp.Body.Close()
 	if e2 != nil || len(u) == 0 {
 		return nil, fmt.Errorf("Error with request %s", url)
 	}
-
 	var rerr RequestError
 	_ = json.Unmarshal(u, &rerr)
 	rerr.URL = url
-
 	return nil, rerr
 }
 
@@ -220,26 +208,17 @@ func (q query) Request() (io.ReadCloser, error) {
 func (q queryGeoJSON) GeoJSON() (*geojson.FeatureCollection, error) {
 	q.Add("format", "geojson")
 	url := q.URL()
-	var (
-		resp *http.Response
-		err  error
-	)
-
-	if q.httpClient == nil {
-		resp, err = http.Get(q.URL())
-	} else {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
-		if err != nil {
-			return nil, err
-		}
-		resp, err = q.httpClient.Do(req)
-	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	resp, err := q.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
 
 	u, err := io.ReadAll(resp.Body)
+	defer resp.Body.Close()
 	if err != nil || len(u) == 0 {
 		return nil, fmt.Errorf("Error with request %s", url)
 	}
@@ -249,12 +228,10 @@ func (q queryGeoJSON) GeoJSON() (*geojson.FeatureCollection, error) {
 		_ = json.Unmarshal(u, &rerr)
 		return nil, rerr
 	}
-
 	var fc geojson.FeatureCollection
 	err = json.Unmarshal(u, &fc)
 	if err != nil {
 		return nil, err
 	}
-
 	return &fc, nil
 }
